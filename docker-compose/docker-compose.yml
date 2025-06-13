@@ -1,4 +1,4 @@
-version: '3.9'
+#version: '3.9'
 
 services:
   redis-db:
@@ -26,6 +26,8 @@ services:
     extends:
       file: ./services/backend.yml
       service: backend
+#    ports:
+#      - "4000:4000"
     build:
       context: ..
       dockerfile: ./docker/Dockerfile
@@ -34,10 +36,20 @@ services:
     links:
       - db:database
     environment:
-        ETHEREUM_JSONRPC_HTTP_URL: http://host.docker.internal:8545/
-        ETHEREUM_JSONRPC_TRACE_URL: http://host.docker.internal:8545/
-        ETHEREUM_JSONRPC_WS_URL: ws://host.docker.internal:8545/
-        CHAIN_ID: '1337'
+        ETHEREUM_JSONRPC_HTTP_URL: https://skilled-patient-emerald.peaq-mainnet.quiknode.pro/e45540dde9737586210c6a7b60b7841228f18099
+#https://peaq.api.onfinality.io/public
+#http://node-7318569341451403264.eu.onfinality.io/jsonrpc?apikey=337d5412-3b82-47b8-84cc-a68eed95eb74
+#https://node-7318814217329868800.hm.onfinality.io/jsonrpc?apikey=4d7dd14d-d68b-4567-a98f-ca154ae03b36
+#https://scout-erpc-evm.peaq.xyz
+           #https://node-7318561163376971776.hm.onfinality.io/jsonrpc?apikey=b42067c9-2b35-45f4-8b79-80ba2acc9795
+          #https://node-7302625440348147712.eu.onfinality.io/jsonrpc?apikey=3caac253-a8d3-4f72-a2a0-3effd18756e2
+        ETHEREUM_JSONRPC_TRACE_URL: https://skilled-patient-emerald.peaq-mainnet.quiknode.pro/e45540dde9737586210c6a7b60b7841228f18099
+#http://node-7318569341451403264.eu.onfinality.io/jsonrpc?apikey=337d5412-3b82-47b8-84cc-a68eed95eb74
+#https://node-7318561163376971776.hm.onfinality.io/jsonrpc?apikey=b42067c9-2b35-45f4-8b79-80ba2acc9795
+        ETHEREUM_JSONRPC_WS_URL: https://skilled-patient-emerald.peaq-mainnet.quiknode.pro/e45540dde9737586210c6a7b60b7841228f18099
+##wss://node-7318561163376971776.hm.onfinality.io/ws?apikey=b42067c9-2b35-45f4-8b79-80ba2acc9795
+# wss://peaq.api.onfinality.io/public
+        CHAIN_ID: '3338'
 
   nft_media_handler:
     depends_on:
@@ -67,7 +79,8 @@ services:
     extends:
       file: ./services/frontend.yml
       service: frontend
-
+    ports:
+      - "3000:3000"
   stats-db-init:
     extends:
       file: ./services/stats.yml

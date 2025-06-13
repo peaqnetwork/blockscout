@@ -1,0 +1,38 @@
+map $http_upgrade $connection_upgrade {
+
+  default upgrade;
+  ''      close;
+}
+
+server {
+   listen 80;
+   server_name scout-stats.peaq.xyz;
+
+   return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    server_name scout-stats.peaq.xyz;
+
+    ssl_certificate     /etc/nginx/certs/origin.crt;
+    ssl_certificate_key /etc/nginx/certs/origin.key;
+    proxy_http_version 1.1;
+    proxy_hide_header Access-Control-Allow-Origin;
+    proxy_hide_header Access-Control-Allow-Methods;
+    add_header 'Access-Control-Allow-Origin' 'https://scout.peaq.xyz' always;
+    add_header 'Access-Control-Allow-Credentials' 'true' always;
+    add_header 'Access-Control-Allow-Methods' 'PUT, GET, POST, OPTIONS, DELETE, PATCH' always;
+
+    location / {
+        proxy_pass            http://stats:8050/;
+        proxy_http_version    1.1;
+        proxy_set_header      Host "$host";
+        proxy_set_header      X-Real-IP "$remote_addr";
+        proxy_set_header      X-Forwarded-For "$proxy_add_x_forwarded_for";
+        proxy_set_header      X-Forwarded-Proto "$scheme";
+        proxy_set_header      Upgrade "$http_upgrade";
+        proxy_set_header      Connection $connection_upgrade;
+        proxy_cache_bypass    $http_upgrade;
+    }
+}
