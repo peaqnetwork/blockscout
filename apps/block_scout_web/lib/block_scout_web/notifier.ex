@@ -28,7 +28,6 @@ defmodule BlockScoutWeb.Notifier do
   }
 
   alias Explorer.{Chain, Market, Repo}
-  alias Explorer.Chain.Address.Counters
 
   alias Explorer.Chain.{
     Address,
@@ -40,9 +39,9 @@ defmodule BlockScoutWeb.Notifier do
     Wei
   }
 
+  alias Explorer.Chain.Cache.Counters.{AddressesCount, AverageBlockTime, Helper}
   alias Explorer.Chain.Supply.RSK
   alias Explorer.Chain.Transaction.History.TransactionStats
-  alias Explorer.Counters.{AverageBlockTime, Helper}
   alias Explorer.SmartContract.{CompilerVersion, Solidity.CodeCompiler}
   alias Phoenix.View
   alias Timex.Duration
@@ -91,10 +90,9 @@ defmodule BlockScoutWeb.Notifier do
                               @chain_type_transaction_associations
 
   def handle_event({:chain_event, :addresses, type, addresses}) when type in [:realtime, :on_demand] do
-    count = Counters.address_estimated_count()
     # TODO: delete duplicated event when old UI becomes deprecated
-    Endpoint.broadcast("addresses_old:new_address", "count", %{count: count})
-    Endpoint.broadcast("addresses:new_address", "count", %{count: to_string(count)})
+    Endpoint.broadcast("addresses_old:new_address", "count", %{count: AddressesCount.fetch()})
+    Endpoint.broadcast("addresses:new_address", "count", %{count: AddressesCount.fetch()})
 
     addresses
     |> Stream.reject(fn %Address{fetched_coin_balance: fetched_coin_balance} -> is_nil(fetched_coin_balance) end)
@@ -177,7 +175,7 @@ defmodule BlockScoutWeb.Notifier do
   end
 
   def handle_event({:chain_event, :blocks, :realtime, blocks}) do
-    last_broadcasted_block_number = Helper.fetch_from_ets_cache(:number, :last_broadcasted_block)
+    last_broadcasted_block_number = Helper.fetch_from_ets_cache(:last_broadcasted_block, :number)
 
     blocks
     |> Enum.sort_by(& &1.number, :asc)
@@ -204,7 +202,7 @@ defmodule BlockScoutWeb.Notifier do
     market_history_data =
       Market.fetch_recent_history()
       |> case do
-        [today | the_rest] -> [%{today | closing_price: exchange_rate.usd_value} | the_rest]
+        [today | the_rest] -> [%{today | closing_price: exchange_rate.fiat_value} | the_rest]
         data -> data
       end
       |> Enum.map(fn day -> Map.take(day, [:closing_price, :date]) end)
@@ -212,7 +210,7 @@ defmodule BlockScoutWeb.Notifier do
     exchange_rate_with_available_supply =
       case Application.get_env(:explorer, :supply) do
         RSK ->
-          %{exchange_rate | available_supply: nil, market_cap_usd: RSK.market_cap(exchange_rate)}
+          %{exchange_rate | available_supply: nil, market_cap: RSK.market_cap(exchange_rate)}
 
         _ ->
           Map.from_struct(exchange_rate)
@@ -225,7 +223,7 @@ defmodule BlockScoutWeb.Notifier do
     })
 
     Endpoint.broadcast("exchange_rate:new_rate", "new_rate", %{
-      exchange_rate: exchange_rate_with_available_supply.usd_value,
+      exchange_rate: exchange_rate_with_available_supply.fiat_value,
       available_supply: exchange_rate_with_available_supply.available_supply,
       chart_data: market_history_data
     })
@@ -363,6 +361,17 @@ defmodule BlockScoutWeb.Notifier do
       "token_instances:#{token_contract_address_hash_string}",
       "fetched_token_instance_metadata",
       %{token_id: token_id, fetched_metadata: fetched_token_instance_metadata}
+    )
+  end
+
+  def handle_event(
+        {:chain_event, :not_fetched_token_instance_metadata, :on_demand,
+         [token_contract_address_hash_string, token_id, reason]}
+      ) do
+    Endpoint.broadcast(
+      "token_instances:#{token_contract_address_hash_string}",
+      "not_fetched_token_instance_metadata",
+      %{token_id: token_id, reason: reason}
     )
   end
 
@@ -530,7 +539,7 @@ defmodule BlockScoutWeb.Notifier do
 
   defp schedule_broadcasting(block) do
     :timer.sleep(@check_broadcast_sequence_period)
-    last_broadcasted_block_number = Helper.fetch_from_ets_cache(:number, :last_broadcasted_block)
+    last_broadcasted_block_number = Helper.fetch_from_ets_cache(:last_broadcasted_block, :number)
 
     if last_broadcasted_block_number == BlockNumberHelper.previous_block_number(block.number) do
       broadcast_block(block)
@@ -558,7 +567,7 @@ defmodule BlockScoutWeb.Notifier do
 
       Endpoint.broadcast("addresses:#{address_hash}", "current_coin_balance", %{
         coin_balance: coin_balance.value || %Wei{value: Decimal.new(0)},
-        exchange_rate: Market.get_coin_exchange_rate().usd_value,
+        exchange_rate: Market.get_coin_exchange_rate().fiat_value,
         block_number: block_number
       })
     end
@@ -581,7 +590,7 @@ defmodule BlockScoutWeb.Notifier do
     v2_params = %{
       balance: address.fetched_coin_balance.value,
       block_number: address.fetched_coin_balance_block_number,
-      exchange_rate: exchange_rate.usd_value
+      exchange_rate: exchange_rate.fiat_value
     }
 
     # TODO: delete duplicated event when old UI becomes deprecated

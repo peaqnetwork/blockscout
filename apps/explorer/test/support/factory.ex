@@ -25,7 +25,6 @@ defmodule Explorer.Factory do
   alias Explorer.Chain.Beacon.{Blob, BlobTransaction}
   alias Explorer.Chain.Block.{EmissionReward, Range, Reward}
   alias Explorer.Chain.Stability.Validator, as: ValidatorStability
-  alias Explorer.Chain.Celo.PendingEpochBlockOperation, as: CeloPendingEpochBlockOperation
 
   alias Explorer.Chain.{
     Address,
@@ -39,6 +38,7 @@ defmodule Explorer.Factory do
     Hash,
     InternalTransaction,
     Log,
+    MultichainSearchDbExportRetryQueue,
     PendingBlockOperation,
     PendingTransactionOperation,
     SmartContract,
@@ -744,6 +744,10 @@ defmodule Explorer.Factory do
     %PendingTransactionOperation{}
   end
 
+  def multichain_search_db_export_retry_queue_factory do
+    %MultichainSearchDbExportRetryQueue{}
+  end
+
   def internal_transaction_factory() do
     gas = Enum.random(21_000..100_000)
     gas_used = Enum.random(0..gas)
@@ -1347,7 +1351,35 @@ defmodule Explorer.Factory do
     to_string(bls_public_key)
   end
 
-  def celo_pending_epoch_block_operation_factory do
-    %CeloPendingEpochBlockOperation{}
+  def withdrawal_log_factory(params) do
+    weth_log(TokenTransfer.weth_withdrawal_signature(), params)
+  end
+
+  def deposit_log_factory(params) do
+    weth_log(TokenTransfer.weth_deposit_signature(), params)
+  end
+
+  defp weth_log(first_topic, %{
+         from_address: from_address,
+         token_contract_address: token_contract_address,
+         amount: amount,
+         transaction: transaction,
+         block: block
+       }) do
+    data = "0x" <> (Integer.to_string(amount, 16) |> String.downcase() |> String.pad_leading(64, "0"))
+
+    %Log{
+      address: token_contract_address,
+      address_hash: token_contract_address.hash,
+      block: block,
+      block_number: block.number,
+      data: data,
+      first_topic: first_topic,
+      second_topic: zero_padded_address_hash_string(from_address.hash),
+      third_topic: nil,
+      fourth_topic: nil,
+      index: sequence("log_index", & &1),
+      transaction: transaction
+    }
   end
 end

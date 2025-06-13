@@ -22,7 +22,14 @@ defmodule Explorer.Migrator.HeavyDbIndexOperation do
 
   If you need to add a new table, extend this type specification with the new table name.
   """
-  @callback table_name :: :logs | :internal_transactions | :token_transfers | :addresses | :arbitrum_batch_l2_blocks
+  @callback table_name ::
+              :transactions
+              | :logs
+              | :internal_transactions
+              | :token_transfers
+              | :addresses
+              | :smart_contracts
+              | :arbitrum_batch_l2_blocks
 
   @doc """
   Specifies the type of operation to be performed on the database index.
@@ -227,9 +234,7 @@ defmodule Explorer.Migrator.HeavyDbIndexOperation do
             all_statuses =
               MigrationStatus.fetch_migration_statuses(dependent_from_migrations())
 
-            all_statuses_completed? =
-              all_statuses
-              |> Enum.all?(&(&1 == "completed"))
+            all_statuses_completed? = not Enum.empty?(all_statuses) && all_statuses |> Enum.all?(&(&1 == "completed"))
 
             all_statuses_completed? && Enum.count(all_statuses) == Enum.count(dependent_from_migrations())
           end
@@ -240,8 +245,7 @@ defmodule Explorer.Migrator.HeavyDbIndexOperation do
         Process.send_after(
           self(),
           :check_db_index_operation_progress,
-          timeout || Application.get_env(:explorer, Explorer.Migrator.HeavyDbIndexOperation)[:check_interval] ||
-            :timer.minutes(10)
+          timeout || HeavyDbIndexOperationHelper.get_check_interval()
         )
       end
 
@@ -249,8 +253,7 @@ defmodule Explorer.Migrator.HeavyDbIndexOperation do
         Process.send_after(
           self(),
           :check_if_db_operation_need_to_be_started,
-          timeout || Application.get_env(:explorer, Explorer.Migrator.HeavyDbIndexOperation)[:check_interval] ||
-            :timer.minutes(10)
+          timeout || HeavyDbIndexOperationHelper.get_check_interval()
         )
       end
 

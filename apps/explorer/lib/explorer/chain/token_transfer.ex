@@ -135,6 +135,7 @@ defmodule Explorer.Chain.TokenTransfer do
 
   use Explorer.Schema
   use Utils.CompileTimeEnvHelper, chain_type: [:explorer, :chain_type]
+  use Utils.RuntimeEnvHelper, chain_type: [:explorer, :chain_type]
 
   require Explorer.Chain.TokenTransfer.Schema
 
@@ -143,6 +144,7 @@ defmodule Explorer.Chain.TokenTransfer do
   alias Explorer.Chain
   alias Explorer.Chain.{DenormalizationHelper, Hash, Log, TokenTransfer}
   alias Explorer.Chain.SmartContract.Proxy.Models.Implementation
+  alias Explorer.Helper, as: ExplorerHelper
   alias Explorer.{PagingOptions, QueryHelper, Repo}
 
   @default_paging_options %PagingOptions{page_size: 50}
@@ -311,6 +313,7 @@ defmodule Explorer.Chain.TokenTransfer do
         |> preload(^preloads)
         |> order_by([tt], desc: tt.block_number, desc: tt.log_index)
         |> maybe_filter_by_token_type(token_type)
+        |> ExplorerHelper.maybe_hide_scam_addresses(:token_contract_address_hash, options)
         |> page_token_transfer(paging_options)
         |> limit(^paging_options.page_size)
         |> Chain.select_repo(options).all()
@@ -529,9 +532,10 @@ defmodule Explorer.Chain.TokenTransfer do
           nil | :to | :from,
           nil | Hash.Address.t(),
           [binary()],
-          nil | Explorer.PagingOptions.t()
+          nil | Explorer.PagingOptions.t(),
+          Keyword.t()
         ) :: Ecto.Query.t()
-  def token_transfers_by_address_hash(address_hash, direction, token_address_hash, token_types, paging_options) do
+  def token_transfers_by_address_hash(address_hash, direction, token_address_hash, token_types, paging_options, options) do
     if direction == :to || direction == :from do
       only_consensus_transfers_query()
       |> filter_by_direction(direction, address_hash)
@@ -540,6 +544,7 @@ defmodule Explorer.Chain.TokenTransfer do
       |> join(:inner, [tt], token in assoc(tt, :token), as: :token)
       |> preload([token: token], [{:token, token}])
       |> filter_by_type(token_types)
+      |> ExplorerHelper.maybe_hide_scam_addresses(:token_contract_address_hash, options)
       |> handle_paging_options(paging_options)
     else
       to_address_hash_query =
@@ -549,6 +554,7 @@ defmodule Explorer.Chain.TokenTransfer do
         |> filter_by_token_address_hash(token_address_hash)
         |> filter_by_type(token_types)
         |> order_by([tt], desc: tt.block_number, desc: tt.log_index)
+        |> ExplorerHelper.maybe_hide_scam_addresses(:token_contract_address_hash, options)
         |> handle_paging_options(paging_options)
         |> Chain.wrapped_union_subquery()
 
@@ -559,6 +565,7 @@ defmodule Explorer.Chain.TokenTransfer do
         |> filter_by_token_address_hash(token_address_hash)
         |> filter_by_type(token_types)
         |> order_by([tt], desc: tt.block_number, desc: tt.log_index)
+        |> ExplorerHelper.maybe_hide_scam_addresses(:token_contract_address_hash, options)
         |> handle_paging_options(paging_options)
         |> Chain.wrapped_union_subquery()
 
@@ -627,18 +634,45 @@ defmodule Explorer.Chain.TokenTransfer do
           l.first_topic == ^@constant or
             l.first_topic == ^@erc1155_single_transfer_signature or
             l.first_topic == ^@erc1155_batch_transfer_signature,
-        where:
-          not exists(
-            from(tf in TokenTransfer,
-              where: tf.transaction_hash == parent_as(:log).transaction_hash,
-              where: tf.log_index == parent_as(:log).index
-            )
-          ),
+        where: not exists(token_transfer_exists_query()),
         select: l.block_number,
         distinct: l.block_number
       )
 
     Repo.stream_reduce(query, [], &[&1 | &2])
+  end
+
+  # Builds a query to check if a token transfer exists for a given log. Handles
+  # chain-specific logic for transaction_hash comparison.
+  #
+  # For Celo epoch blocks, `transaction_hash` can be `nil` in both `Log` and
+  # `TokenTransfer`. A direct SQL comparison `NULL = NULL` evaluates to
+  # `UNKNOWN` (effectively false in this context). Therefore, we need a
+  # NULL-safe comparison for `transaction_hash`. Additionally, `block_hash` is
+  # included in the join condition to uniquely identify the token transfer, as
+  # `transaction_hash` (when nil) and `log_index` alone are insufficient.
+  @spec token_transfer_exists_query() :: Ecto.Query.t()
+  defp token_transfer_exists_query do
+    query =
+      from(tt in TokenTransfer,
+        where: tt.block_hash == parent_as(:log).block_hash,
+        where: tt.log_index == parent_as(:log).index
+      )
+
+    chain_type()
+    |> case do
+      :celo ->
+        query
+        |> where(
+          [tt],
+          tt.transaction_hash == parent_as(:log).transaction_hash or
+            (is_nil(parent_as(:log).transaction_hash) and is_nil(tt.transaction_hash))
+        )
+
+      _ ->
+        query
+        |> where([tt], tt.transaction_hash == parent_as(:log).transaction_hash)
+    end
   end
 
   @doc """
